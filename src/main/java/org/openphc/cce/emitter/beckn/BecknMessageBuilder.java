@@ -22,13 +22,15 @@ import java.util.UUID;
  * Builds the messages of the emitter (docs/beckn-integration.md § 8–9), from the settings:
  *
  * <ul>
- *   <li>the CCE events leg: the Sygnal action {@code sygnal/event/report} to the HIE, with one flat
- *       {@code cce:CceClinicalEvent} v2.0 in {@code message.events}: the event itself, with its own
- *       {@code id} and {@code occurredAt}, and the FHIR resource. No Sygnal wrapper, no attribute bag,
- *       no contract, no commitment;</li>
+ *   <li>the CCE events leg: the Sygnal action {@code sygnal/event/report} to the HIE, with one
+ *       {@code sygnal:CoordinationEvent} in {@code message.events}, as extended in the CCE profile of
+ *       Sygnal v3.0: the Sygnal fields, and the clinical-event fields ({@code patientId},
+ *       {@code fhirVersion}, {@code sourceEventId}, {@code resource}) directly on it. No
+ *       {@code cce:} type, no attribute bag, no {@code @context}, no contract, no commitment;</li>
  *   <li>the Spice referral legs (standard Beckn): {@code on_status} and {@code update}, with
  *       {@code context}, {@code message.contract} and one performance entry whose
- *       {@code performanceAttributes} is the {@code CceClinicalEvent} v1.0 box, as before. The
+ *       {@code performanceAttributes} is the same {@code sygnal:CoordinationEvent}, with an
+ *       {@code @context} added (schema {@code CoordinationEvent/v3.0} of cce-beckn-service). The
  *       referral commitment files are read once, at start.</li>
  * </ul>
  * On every leg the event id is the id of the one event / performance entry.
@@ -38,15 +40,16 @@ import java.util.UUID;
 public class BecknMessageBuilder {
 
     public static final String VERSION = "2.0.0";
-    public static final String EVENT_TYPE = "cce:CceClinicalEvent";
     public static final String FHIR_VERSION = "4.0.1";
     public static final String ACTION_UPDATE = "update";
     public static final String ACTION_ON_STATUS = "on_status";
     public static final String ACTION_EVENT_REPORT = "sygnal/event/report";
-    /** JSON-LD context of the flat event of {@code sygnal/event/report}, under the schema base URL. */
-    static final String EVENT_REPORT_CONTEXT_PATH = "/CceClinicalEvent/v2.0/context.jsonld";
+    public static final String COORDINATION_EVENT_TYPE = "sygnal:CoordinationEvent";
+    public static final String SYGNAL_EVENT_TYPE = "DELIVERY_RECORDED";
+    public static final String GRANULARITY = "INDIVIDUAL";
+    public static final String ROLE = "PROVIDER";
     /** JSON-LD context of the {@code performanceAttributes} box of the Beckn referral legs. */
-    static final String REFERRAL_BOX_CONTEXT_PATH = "/CceClinicalEvent/v1.0/context.jsonld";
+    static final String REFERRAL_BOX_CONTEXT_PATH = "/CoordinationEvent/v3.0/context.jsonld";
 
     private final BecknConfig beckn;
     private final JsonNode referralsInCommitment;
@@ -66,8 +69,8 @@ public class BecknMessageBuilder {
 
     /**
      * Sygnal {@code sygnal/event/report} to the HIE, posted to this emitter's onix Sygnal caller.
-     * {@code message.events} holds exactly one {@code cce:CceClinicalEvent} v2.0. That object is
-     * closed: only the fields set here, and never a null.
+     * {@code message.events} holds exactly one {@code sygnal:CoordinationEvent} of the CCE profile
+     * v3.0: only the fields set here, in this order, and never a null.
      */
     public OutgoingMessage eventReport(JsonNode resource, String eventId, String patientId) {
         var sygnal = beckn.getSygnal();
@@ -90,17 +93,7 @@ public class BecknMessageBuilder {
         context.put("timestamp", now());
 
         ObjectNode event = root.putObject("message").putArray("events").addObject();
-        event.put("@context", stripTrailingSlash(beckn.getSchemaBaseUrl()) + EVENT_REPORT_CONTEXT_PATH);
-        event.put("@type", EVENT_TYPE);
-        event.put("id", eventId);
-        event.put("occurredAt", occurredAt(resource));
-        event.put("patientId", patientId);
-        event.put("fhirVersion", FHIR_VERSION);
-        String sourceEventId = sourceEventId(resource);
-        if (sourceEventId != null) {
-            event.put("sourceEventId", sourceEventId);
-        }
-        event.set("resource", resource.deepCopy());
+        coordinationEvent(event, sygnal.getId(), resource, eventId, patientId);
 
         return message(Leg.CCE_EVENTS, ACTION_EVENT_REPORT, sygnal.getCallerUrl(), root, eventId, resource,
                 transactionId, null);
@@ -113,7 +106,7 @@ public class BecknMessageBuilder {
         BecknContractConfig contract = peer.getReferralsIn();
         ObjectNode context = context(ACTION_ON_STATUS, peer.getBapId(), peer.getBapUri(),
                 self.getBppId(), self.getBppUri(), contract.getTransactionId());
-        ObjectNode performance = performance(eventId, performanceStatus, resource, patientId);
+        ObjectNode performance = performance(eventId, performanceStatus, resource, patientId, self.getBppId());
         ObjectNode body = envelope(context, contract.getContractId(), true, referralsInCommitment, performance);
         return message(Leg.REFERRALS_IN, ACTION_ON_STATUS, beckn.getOnix().getBppCallerUrl(), body, eventId,
                 resource, contract.getTransactionId(), contract.getContractId());
@@ -126,7 +119,7 @@ public class BecknMessageBuilder {
         BecknContractConfig contract = peer.getReferralsOut();
         ObjectNode context = context(ACTION_UPDATE, self.getBapId(), self.getBapUri(),
                 peer.getBppId(), peer.getBppUri(), contract.getTransactionId());
-        ObjectNode performance = performance(eventId, null, resource, patientId);
+        ObjectNode performance = performance(eventId, null, resource, patientId, self.getBapId());
         ObjectNode body = envelope(context, contract.getContractId(), false, referralsOutCommitment, performance);
         return message(Leg.REFERRALS_OUT, ACTION_UPDATE, beckn.getOnix().getBapCallerUrl(), body, eventId,
                 resource, contract.getTransactionId(), contract.getContractId());
@@ -153,35 +146,52 @@ public class BecknMessageBuilder {
         return context;
     }
 
-    private ObjectNode performance(String eventId, String status, JsonNode resource, String patientId) {
+    private ObjectNode performance(String eventId, String status, JsonNode resource, String patientId,
+                                   String senderId) {
         ObjectNode performance = BecknJson.MAPPER.createObjectNode();
         performance.put("id", eventId);
         if (status != null) {
             performance.putObject("status").put("code", status);
         }
-        performance.set("performanceAttributes", referralBox(resource, patientId));
+        performance.set("performanceAttributes", referralBox(resource, eventId, patientId, senderId));
         return performance;
     }
 
     /**
-     * The {@code cce:CceClinicalEvent} v1.0 box: {@code performanceAttributes} of the Beckn referral
-     * legs only. It is not the event of {@code sygnal/event/report}, which is built in
-     * {@link #eventReport}; the two are kept apart so that a change to one never changes the other.
+     * The box of the Beckn referral legs ({@code performanceAttributes}): the same
+     * {@code sygnal:CoordinationEvent} as in {@link #eventReport}, with an {@code @context} first, because
+     * onix checks a typed object of a Beckn message only when it has one. {@code from.id} is the
+     * subscriber id that sends the message.
      */
-    private ObjectNode referralBox(JsonNode resource, String patientId) {
+    private ObjectNode referralBox(JsonNode resource, String eventId, String patientId, String senderId) {
         ObjectNode attrs = BecknJson.MAPPER.createObjectNode();
         attrs.put("@context", stripTrailingSlash(beckn.getSchemaBaseUrl()) + REFERRAL_BOX_CONTEXT_PATH);
-        attrs.put("@type", EVENT_TYPE);
-        String resourceType = BecknJson.text(resource, "resourceType");
-        attrs.put("eventType", resourceType);
-        attrs.put("patientId", patientId);
-        attrs.put("fhirVersion", FHIR_VERSION);
-        String id = BecknJson.text(resource, "id");
-        if (resourceType != null && id != null) {
-            attrs.put("sourceEventId", resourceType + "/" + id);
-        }
-        attrs.set("resource", resource.deepCopy());
+        coordinationEvent(attrs, senderId, resource, eventId, patientId);
         return attrs;
+    }
+
+    /**
+     * The fields of a {@code sygnal:CoordinationEvent} of the CCE profile v3.0, as extended by
+     * {@code cce-fhir-extension.yaml}: only the fields set here, in this order, and never a null.
+     */
+    private static void coordinationEvent(ObjectNode event, String senderId, JsonNode resource, String eventId,
+                                          String patientId) {
+        event.put("@type", COORDINATION_EVENT_TYPE);
+        event.put("id", eventId);
+        event.put("revision", 1);
+        event.put("eventType", SYGNAL_EVENT_TYPE);
+        event.put("granularity", GRANULARITY);
+        ObjectNode from = event.putObject("from");
+        from.put("id", senderId);
+        from.put("role", ROLE);
+        event.put("occurredAt", occurredAt(resource));
+        event.put("patientId", patientId);
+        event.put("fhirVersion", FHIR_VERSION);
+        String sourceEventId = sourceEventId(resource);
+        if (sourceEventId != null) {
+            event.put("sourceEventId", sourceEventId);
+        }
+        event.set("resource", resource.deepCopy());
     }
 
     private static ObjectNode envelope(ObjectNode context, String contractId, boolean withContractStatus,

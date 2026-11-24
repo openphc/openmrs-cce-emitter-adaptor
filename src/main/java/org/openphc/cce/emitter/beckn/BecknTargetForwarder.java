@@ -22,7 +22,8 @@ import java.util.List;
  * only if every message got {@code Ack}.
  *
  * <p>A resource with no patient (for example {@code Location}, {@code Practitioner}) is skipped:
- * {@code patientId} is required by {@code CceClinicalEvent}.
+ * {@code patientId} is required on every leg, by the {@code sygnal:CoordinationEvent} of the CCE
+ * profile, in the report to the HIE and in the box of the referral legs.
  */
 @Service
 @ConditionalOnProperty(prefix = "emitter", name = "target", havingValue = "beckn", matchIfMissing = true)

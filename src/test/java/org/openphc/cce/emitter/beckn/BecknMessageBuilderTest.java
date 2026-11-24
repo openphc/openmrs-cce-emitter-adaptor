@@ -19,8 +19,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Message shapes against the samples in docs/beckn-integration.md § 9: the Sygnal event report (CCE
- * Sygnal contract, with a flat {@code cce:CceClinicalEvent} v2.0 as the event) and the Beckn referral
- * messages to Spice (unchanged from demo-beckn).
+ * Sygnal contract, profile v3.0, with the extended {@code sygnal:CoordinationEvent} as the event) and
+ * the Beckn referral messages to Spice (unchanged from demo-beckn).
  */
 class BecknMessageBuilderTest {
 
@@ -57,6 +57,13 @@ class BecknMessageBuilderTest {
         return names;
     }
 
+    /** The keys in the order they are written. */
+    private static List<String> orderedFieldNames(JsonNode node) {
+        List<String> names = new ArrayList<>();
+        node.fieldNames().forEachRemaining(names::add);
+        return names;
+    }
+
     @Test
     void eventReportMatchesSample() throws Exception {
         JsonNode sample = sample();
@@ -69,11 +76,14 @@ class BecknMessageBuilderTest {
         assertEquals("sygnal/event/report", msg.action());
         assertEquals("http://onix-openmrs:8082/sygnal/caller/sygnal/event/report", msg.url());
         assertEquals(BecknTestSettings.TRANSACTION_ID, msg.transactionId());
-        assertEquals(sample, normalise(msg.forAttempt(), sample));
+        ObjectNode built = normalise(msg.forAttempt(), sample);
+        assertEquals(sample, built);
+        // JsonNode equality ignores the order of the keys: the order is part of the contract too
+        assertEquals(orderedFieldNames(sample.at("/message/events/0")), orderedFieldNames(built.at("/message/events/0")));
     }
 
     @Test
-    void contextIsTheClosedSygnalContextAndTheEventIsAFlatClosedCceClinicalEvent() {
+    void contextIsTheClosedSygnalContextAndTheEventIsTheExtendedCoordinationEvent() {
         ObjectNode body = builder(BecknTestSettings.properties())
                 .eventReport(BecknJson.parse(ENCOUNTER), "ev", "p").forAttempt();
 
@@ -83,14 +93,20 @@ class BecknMessageBuilderTest {
         assertEquals(Set.of("events"), fieldNames(body.get("message")));
         assertEquals(1, body.at("/message/events").size());
         JsonNode event = body.at("/message/events/0");
-        // the event is closed: exactly these keys, none of them null
-        assertEquals(new TreeSet<>(List.of("@context", "@type", "id", "occurredAt", "patientId", "fhirVersion",
-                "sourceEventId", "resource")), fieldNames(event));
+        // exactly these keys, in this order, none of them null
+        assertEquals(List.of("@type", "id", "revision", "eventType", "granularity", "from", "occurredAt",
+                "patientId", "fhirVersion", "sourceEventId", "resource"), orderedFieldNames(event));
         event.fields().forEachRemaining(field -> assertFalse(field.getValue().isNull(), field.getKey()));
-        assertEquals("https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceClinicalEvent/v2.0/context.jsonld",
-                event.get("@context").asText());
-        assertEquals("cce:CceClinicalEvent", event.get("@type").asText());
+        assertEquals("sygnal:CoordinationEvent", event.get("@type").asText());
         assertEquals("ev", event.get("id").asText());
+        assertTrue(event.get("revision").isInt());
+        assertEquals(1, event.get("revision").asInt());
+        assertEquals("DELIVERY_RECORDED", event.get("eventType").asText());
+        assertEquals("INDIVIDUAL", event.get("granularity").asText());
+        assertEquals(List.of("id", "role"), orderedFieldNames(event.get("from")));
+        assertEquals(body.at("/context/senderId").asText(), event.at("/from/id").asText());
+        assertEquals("bap.openmrs.nextsteps.mdtlabs.org", event.at("/from/id").asText());
+        assertEquals("PROVIDER", event.at("/from/role").asText());
         Instant.parse(event.get("occurredAt").asText());
         assertEquals("p", event.get("patientId").asText());
         assertEquals("4.0.1", event.get("fhirVersion").asText());
@@ -98,12 +114,11 @@ class BecknMessageBuilderTest {
         assertEquals(BecknJson.parse(ENCOUNTER), event.get("resource"));
         String text = BecknJson.write(body);
         for (String gone : new String[]{"bapId", "bppId", "bapUri", "bppUri", "contract", "commitments", "performance",
-                "eventAttributes", "performanceAttributes", "revision", "eventType", "granularity", "from"}) {
+                "@context", "eventAttributes", "performanceAttributes"}) {
             assertFalse(text.contains("\"" + gone + "\""), gone);
         }
-        assertFalse(text.contains("sygnal:"), "no Sygnal type in the message");
-        assertFalse(text.contains("CoordinationEvent"), "no Sygnal type in the message");
-        assertFalse(text.contains("DELIVERY_RECORDED"), "no Sygnal event type in the message");
+        assertFalse(text.contains("cce:"), "no cce: type in the message");
+        assertFalse(text.contains("CceClinicalEvent"), "no cce: type in the message");
     }
 
     @Test
@@ -113,14 +128,15 @@ class BecknMessageBuilderTest {
                         "ev", "p")
                 .forAttempt().at("/message/events/0");
 
-        assertEquals(new TreeSet<>(List.of("@context", "@type", "id", "occurredAt", "patientId", "fhirVersion",
-                "resource")), fieldNames(event));
+        assertEquals(List.of("@type", "id", "revision", "eventType", "granularity", "from", "occurredAt",
+                "patientId", "fhirVersion", "resource"), orderedFieldNames(event));
     }
 
     @Test
-    void networkIdAndSchemaBaseUrlAndCallerUrlComeFromSettings() {
+    void networkIdAndSenderIdAndCallerUrlComeFromSettingsAndTheSchemaBaseUrlIsNotInTheMessage() {
         EmitterProperties properties = BecknTestSettings.properties();
         properties.getBeckn().getSygnal().setNetworkId("openphc-demo");
+        properties.getBeckn().getSygnal().setId("openmrs.example.org");
         properties.getBeckn().setSchemaBaseUrl("https://schemas.example.org/base/");
         properties.getBeckn().getSygnal().setCallerUrl("http://onix:9000/sygnal/caller/");
         OutgoingMessage msg = builder(properties).eventReport(BecknJson.parse(ENCOUNTER), "ev", "p");
@@ -128,8 +144,9 @@ class BecknMessageBuilderTest {
 
         assertEquals("http://onix:9000/sygnal/caller/sygnal/event/report", msg.url());
         assertEquals("openphc-demo", body.at("/context/networkId").asText());
-        assertEquals("https://schemas.example.org/base/CceClinicalEvent/v2.0/context.jsonld",
-                body.at("/message/events/0/@context").asText());
+        assertEquals("openmrs.example.org", body.at("/context/senderId").asText());
+        assertEquals("openmrs.example.org", body.at("/message/events/0/from/id").asText());
+        assertFalse(BecknJson.write(body).contains("schemas.example.org"), "the event has no @context");
     }
 
     @Test
@@ -191,7 +208,11 @@ class BecknMessageBuilderTest {
 
         assertEquals(Leg.REFERRALS_IN, msg.leg());
         assertEquals("http://onix-bpp:8082/bpp/caller/on_status", msg.url());
-        assertEquals(sample, normalise(msg.forAttempt(), sample));
+        ObjectNode built = normalise(msg.forAttempt(), sample);
+        assertEquals(sample, built);
+        // the box is the CoordinationEvent of the Sygnal report, with @context first: same keys, same order
+        assertEquals(orderedFieldNames(sample.at("/message/contract/performance/0/performanceAttributes")),
+                orderedFieldNames(built.at("/message/contract/performance/0/performanceAttributes")));
     }
 
     @Test
@@ -212,8 +233,38 @@ class BecknMessageBuilderTest {
         assertEquals("referral", body.at("/message/contract/commitments/0/id").asText());
         assertEquals(1, body.at("/message/contract/performance").size());
         assertEquals("ev-1", body.at("/message/contract/performance/0/id").asText());
-        assertEquals("ServiceRequest/sr9", body.at("/message/contract/performance/0/performanceAttributes/sourceEventId").asText());
-        assertEquals(resource, body.at("/message/contract/performance/0/performanceAttributes/resource"));
+        JsonNode box = body.at("/message/contract/performance/0/performanceAttributes");
+        assertEquals("https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CoordinationEvent/v3.0/context.jsonld",
+                box.get("@context").asText());
+        assertEquals("sygnal:CoordinationEvent", box.get("@type").asText());
+        assertEquals("ev-1", box.get("id").asText());
+        assertEquals(1, box.get("revision").asInt());
+        assertEquals("DELIVERY_RECORDED", box.get("eventType").asText());
+        assertEquals("bap.openmrs.example.org", box.at("/from/id").asText(), "from.id is the sender, context.bapId");
+        assertEquals("PROVIDER", box.at("/from/role").asText());
+        Instant.parse(box.get("occurredAt").asText());
+        assertEquals("119", box.get("patientId").asText());
+        assertEquals("4.0.1", box.get("fhirVersion").asText());
+        assertEquals("ServiceRequest/sr9", box.get("sourceEventId").asText());
+        assertEquals(resource, box.get("resource"));
+        assertFalse(BecknJson.write(body).contains("CceClinicalEvent"), "no cce: type in the box");
+    }
+
+    @Test
+    void referralBoxIsTheEventOfTheSygnalReportWithAContext() {
+        JsonNode resource = BecknJson.parse(ENCOUNTER);
+        BecknMessageBuilder builder = builder(BecknTestSettings.properties());
+        ObjectNode event = (ObjectNode) builder.eventReport(resource, "ev", "p").forAttempt().at("/message/events/0");
+        ObjectNode box = (ObjectNode) builder.peerReferralUpdate(resource, "ev", "p").forAttempt()
+                .at("/message/contract/performance/0/performanceAttributes");
+
+        assertEquals("@context", orderedFieldNames(box).get(0));
+        box.remove("@context");
+        assertEquals(orderedFieldNames(event), orderedFieldNames(box));
+        for (String field : new String[]{"@type", "id", "revision", "eventType", "granularity", "patientId",
+                "fhirVersion", "sourceEventId", "resource"}) {
+            assertEquals(event.get(field), box.get(field), field);
+        }
     }
 
     @Test

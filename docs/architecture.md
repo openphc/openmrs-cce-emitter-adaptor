@@ -440,7 +440,7 @@ All three operations are idempotent and only apply to `ServiceRequest`. `Medicat
 
 > **Status:** Implemented on branch `sygnal-actions` (package `org.openphc.cce.emitter.beckn`). Not yet tested against real onix containers. Full design: [beckn-integration.md](beckn-integration.md).
 
-A setting, `OPENMRS_EMITTER_TARGET` (`emitter.target`), chooses the output path. With `openhim` everything in sections 1–12 stays as it is. On this branch the default is `beckn`. With `beckn`, the emitter posts to onix adapter containers instead of FHIR to OpenHIM, with two protocols: the CCE events leg is **Sygnal** (`sygnal/event/report` to the HIE, through `onix-openmrs`); the Spice referral legs are **standard Beckn**, unchanged (`on_status` through `onix-bpp`, `update` through `onix-bap`).
+A setting, `OPENMRS_EMITTER_TARGET` (`emitter.target`), chooses the output path. With `openhim` everything in sections 1–12 stays as it is. On this branch the default is `beckn`. With `beckn`, the emitter posts to onix adapter containers instead of FHIR to OpenHIM, with two protocols: the CCE events leg is **Sygnal** (`sygnal/event/report` to the HIE, through `onix-openmrs`); the Spice referral legs are **standard Beckn**, with the same actions and contracts as before (`on_status` through `onix-bpp`, `update` through `onix-bap`).
 
 ```
   OpenMRS ──(FHIR R4 API)──► ★ OpenMRS Emitter Adaptor ★  (OPENMRS_EMITTER_TARGET=beckn)
@@ -461,7 +461,7 @@ A setting, `OPENMRS_EMITTER_TARGET` (`emitter.target`), chooses the output path.
 
 Polling, enrichers, `PatientReferenceRewriter`, `CheckpointStore` and the retry settings are shared by both modes. The emitter builds no CloudEvent in Beckn mode; the HIE still does that.
 
-Each message carries exactly one event. On the Sygnal leg it is `message.events[0]`, one flat `cce:CceClinicalEvent` v2.0 (`@context`, `@type`, `id`, `occurredAt`, `patientId`, `fhirVersion`, `sourceEventId`, `resource`; a closed object, with no `sygnal:CoordinationEvent` wrapper and no `eventAttributes` bag since 2026-11-23). On the Beckn legs it is one performance entry, whose `performanceAttributes` box is a `CceClinicalEvent` v1.0, unchanged. Its id is the event id: a 36-character name-based UUID of the resource hash, so a corrected resource gets a new id. Answers follow the `Ack` / `Nack` shape: any 2xx not `NACK` is success (`202` on the Sygnal leg), `400` / `NACK` fails with no retry, and `500`, `408`, `429` or no answer is retried with the same id and a new `messageId`. The emitter waits up to 50 s for one answer, the outermost hop in the chain ([beckn-integration.md](beckn-integration.md) § 10).
+Each message carries exactly one event. On the Sygnal leg it is `message.events[0]`, one `sygnal:CoordinationEvent` as extended in the CCE profile of Sygnal v3.0 (`@type`, `id`, `revision`, `eventType`, `granularity`, `from`, `occurredAt`, `patientId`, `fhirVersion`, `sourceEventId`, `resource`; no `cce:CceClinicalEvent` type, no `eventAttributes` bag and no `@context` since 2026-11-23). On the Beckn legs it is one performance entry, whose `performanceAttributes` box is the same `sygnal:CoordinationEvent` with an `@context` first (`CoordinationEvent/v3.0`; until 2026-11-23 a `cce:CceClinicalEvent` v1.0). Its id is the event id: a 36-character name-based UUID of the resource hash, so a corrected resource gets a new id. Answers follow the `Ack` / `Nack` shape: any 2xx not `NACK` is success (`202` on the Sygnal leg), `400` / `NACK` fails with no retry, and `500`, `408`, `429` or no answer is retried with the same id and a new `messageId`. The emitter waits up to 50 s for one answer, the outermost hop in the chain ([beckn-integration.md](beckn-integration.md) § 10).
 
 ### 13.1 Where the New Classes Sit
 
@@ -480,7 +480,7 @@ src/main/java/org/openphc/cce/emitter/
     ├── EventIdFactory.java             # sorted-key JSON → SHA-256 → name-based UUID
     ├── PatientIdReader.java            # subject/patient reference, or a Patient's national ID
     ├── ReferralClassifier.java         # decides the Spice message, if any
-    ├── BecknMessageBuilder.java        # Sygnal event report (flat CceClinicalEvent v2.0); Beckn context, contract, CceClinicalEvent v1.0 box
+    ├── BecknMessageBuilder.java        # Sygnal event report (extended sygnal:CoordinationEvent); Beckn context, contract, the same event as box
     ├── OnixClient.java                 # posts to onix callers; Ack / Nack; retries
     ├── OnixAnswer.java                 # Ack / Nack / retry decision for one answer
     ├── OutgoingMessage.java            # one message; new messageId per attempt

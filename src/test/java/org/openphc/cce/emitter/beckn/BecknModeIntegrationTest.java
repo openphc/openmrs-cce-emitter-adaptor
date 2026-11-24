@@ -23,9 +23,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import java.util.TreeSet;
 import java.util.UUID;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
@@ -183,21 +182,27 @@ class BecknModeIntegrationTest {
         assertEquals(1, message.size());
         assertEquals(1, message.get("events").size());
         JsonNode event = message.at("/events/0");
-        // a flat cce:CceClinicalEvent v2.0: exactly these keys, no Sygnal type, no attribute bag
-        Set<String> eventFields = new TreeSet<>();
+        // the extended sygnal:CoordinationEvent (profile v3.0): exactly these keys, in this order;
+        // no cce: type, no attribute bag, no @context
+        List<String> eventFields = new ArrayList<>();
         event.fieldNames().forEachRemaining(eventFields::add);
-        assertEquals(new TreeSet<>(List.of("@context", "@type", "id", "occurredAt", "patientId", "fhirVersion",
-                "sourceEventId", "resource")), eventFields);
-        assertEquals("https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceClinicalEvent/v2.0/context.jsonld",
-                event.get("@context").asText());
-        assertEquals("cce:CceClinicalEvent", event.get("@type").asText());
+        assertEquals(List.of("@type", "id", "revision", "eventType", "granularity", "from", "occurredAt",
+                "patientId", "fhirVersion", "sourceEventId", "resource"), eventFields);
+        assertEquals("sygnal:CoordinationEvent", event.get("@type").asText());
         assertEquals(eventIdFactory.eventId(BecknJson.parse(ENCOUNTER)), event.get("id").asText());
+        assertEquals(1, event.get("revision").asInt());
+        assertEquals("DELIVERY_RECORDED", event.get("eventType").asText());
+        assertEquals("INDIVIDUAL", event.get("granularity").asText());
+        assertEquals(2, event.get("from").size());
+        assertEquals(ctx.get("senderId").asText(), event.at("/from/id").asText());
+        assertEquals("PROVIDER", event.at("/from/role").asText());
         assertEquals("2026-11-13T08:00:12Z", event.get("occurredAt").asText());
         assertEquals("1198503150001234", event.get("patientId").asText());
         assertEquals("4.0.1", event.get("fhirVersion").asText());
         assertEquals("Encounter/7d2c9b1e", event.get("sourceEventId").asText());
         assertEquals(BecknJson.parse(ENCOUNTER), event.get("resource"));
-        assertFalse(body.toString().contains("sygnal:"), "no Sygnal type in the message");
+        assertFalse(body.toString().contains("cce:"), "no cce: type in the message");
+        assertFalse(event.has("eventAttributes"), "no attribute bag");
 
         assertEquals(before + 1, count(OnixClient.METRIC_SENT, "leg", "cce-events", "action", "sygnal/event/report",
                 "outcome", "ack"));

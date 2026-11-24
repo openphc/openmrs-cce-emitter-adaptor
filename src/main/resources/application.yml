@@ -31,7 +31,7 @@ emitter:
     schema-base-url: ${OPENMRS_EMITTER_BECKN_SCHEMA_BASE_URL:https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema}
     sygnal:                                                  # CCE events leg (Sygnal)
       caller-url: ${OPENMRS_EMITTER_BECKN_SYGNAL_CALLER_URL:http://onix-openmrs:8082/sygnal/caller}   # + /sygnal/event/report
-      id: ${OPENMRS_EMITTER_BECKN_SYGNAL_ID:bap.openmrs.nextsteps.mdtlabs.org}  # context.senderId; the subscriber id of onix-openmrs's keys
+      id: ${OPENMRS_EMITTER_BECKN_SYGNAL_ID:bap.openmrs.nextsteps.mdtlabs.org}  # context.senderId and from.id; the subscriber id of onix-openmrs's keys
       network-id: ${OPENMRS_EMITTER_BECKN_SYGNAL_NETWORK_ID:sygnal.nextsteps.mdtlabs.org/sygnal_demo_network_registry}  # required; context.networkId
       hie:
         id: ${OPENMRS_EMITTER_BECKN_SYGNAL_HIE_ID:bap.openhim.nextsteps.mdtlabs.org}  # context.receiverId

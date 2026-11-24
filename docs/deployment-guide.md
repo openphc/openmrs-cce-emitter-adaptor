@@ -76,7 +76,7 @@ volumes:
 
 > **Status:** Implemented on branch `sygnal-actions` (package `org.openphc.cce.emitter.beckn`). Not yet tested against real onix containers. See [beckn-integration.md](beckn-integration.md).
 
-With `OPENMRS_EMITTER_TARGET=openhim` the deployment above is all that is needed. On this branch the default is `beckn`, so set `OPENMRS_EMITTER_TARGET=openhim` explicitly to deploy without Beckn. Beckn mode adds the onix adapter containers and their Redis, as an optional group: OpenMRS's Sygnal onix (`onix-openmrs`) for the CCE events leg, and the two Beckn `openmrs-onix` containers (`onix-bap`, `onix-bpp`) for the Spice referral legs, unchanged.
+With `OPENMRS_EMITTER_TARGET=openhim` the deployment above is all that is needed. On this branch the default is `beckn`, so set `OPENMRS_EMITTER_TARGET=openhim` explicitly to deploy without Beckn. Beckn mode adds the onix adapter containers and their Redis, as an optional group: OpenMRS's Sygnal onix (`onix-openmrs`) for the CCE events leg, and the two Beckn `openmrs-onix` containers (`onix-bap`, `onix-bpp`, onix 1.9.4) for the Spice referral legs. Since 2026-11-23 their schema set is `CoordinationEvent/v3.0` plus the Health* pack, in place of `CceClinicalEvent/v1.0`.
 
 | Container | Role | Port on `cce-net` | Host port on the dev host |
 |-----------|------|-------------------|---------------------------|
@@ -116,8 +116,9 @@ The Beckn ids, contract ids and facility codes of the referral legs go in YAML o
 ### Beckn Mode Checklist
 
 - [ ] `onix-openmrs`, `onix-bap` and `onix-bpp` are running on `cce-net` and reachable from the emitter
-- [ ] `onix-openmrs` holds OpenMRS's keys for subscriber id `bap.openmrs.nextsteps.mdtlabs.org` (= `OPENMRS_EMITTER_BECKN_SYGNAL_ID`), the CCE Sygnal profile and the `CceClinicalEvent` schema (from the cce-beckn-service `schema/` folder)
-- [ ] `onix-bap` and `onix-bpp` have OpenMRS's own Beckn ids and keys, and the `CceClinicalEvent` schema
+- [ ] `onix-openmrs` holds OpenMRS's keys for subscriber id `bap.openmrs.nextsteps.mdtlabs.org` (= `OPENMRS_EMITTER_BECKN_SYGNAL_ID`), and the CCE Sygnal profile v3.0: the two files `cce-sygnal-apis.yaml` (its spec) and `cce-fhir-extension.yaml`, in one folder (`schema/sygnal-profile/v3.0/` of the cce-beckn-service repository). It needs no payload schema: no object of the Sygnal messages carries `@context`
+- [ ] `onix-bap` and `onix-bpp` have OpenMRS's own Beckn ids and keys, and the schema set `CoordinationEvent/v3.0` (from `schema/CoordinationEvent/v3.0/` of the cce-beckn-service repository) plus the Health* pack. onix finds the box's schema by its `@type`: `sygnal:CoordinationEvent` → `CoordinationEvent/attributes.yaml` in its local schema folder
+- [ ] Spice's referral adapters and messages use the `sygnal:CoordinationEvent` box too (changed on 2026-11-23, at the same time). An adapter without the old schema refuses the old `cce:CceClinicalEvent` box (`SCH_SCHEMA_ADAPTATION_FAILED`)
 - [ ] `OPENMRS_EMITTER_BECKN_SYGNAL_HIE_URI` is set (the emitter does not start in Beckn mode without it)
 - [ ] `responseHeaderTimeout` on `onix-openmrs` and `onix-bap` is raised from the 5 s default to at least 45 s, and the emitter's `emitter.beckn.onix.timeout` is 50 s ([beckn-integration.md](beckn-integration.md) § 10.4)
 - [ ] The "referrals in" and "referrals out" ids are agreed with Spice and set in `emitter.beckn.spice`

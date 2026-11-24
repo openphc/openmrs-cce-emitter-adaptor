@@ -6,7 +6,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * Reads {@code patientId} for the {@code CceClinicalEvent} box (docs/beckn-integration.md § 6).
+ * Reads {@code patientId} of the event, on every leg (docs/beckn-integration.md § 6).
  * {@code PatientReferenceRewriter} has already put the national ID into the references and the
  * Patient id, so this is a plain read with no call to OpenMRS.
  *

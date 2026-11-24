@@ -108,7 +108,7 @@ groups:
 
 > **Status:** Implemented on branch `sygnal-actions` (package `org.openphc.cce.emitter.beckn`). Not yet tested against real onix containers. See [beckn-integration.md](beckn-integration.md).
 
-This section applies when `OPENMRS_EMITTER_TARGET=beckn`, the default on this branch. The emitter then sends every resource to the HIE as Sygnal `sygnal/event/report` through `onix-openmrs`, and referrals to Spice as standard Beckn (`on_status` through `onix-bpp`, `update` through `onix-bap`), unchanged. With `openhim`, everything above is unchanged.
+This section applies when `OPENMRS_EMITTER_TARGET=beckn`, the default on this branch. The emitter then sends every resource to the HIE as Sygnal `sygnal/event/report` through `onix-openmrs`, and referrals to Spice as standard Beckn (`on_status` through `onix-bpp`, `update` through `onix-bap`). Since 2026-11-23 the box of the referral messages is a `sygnal:CoordinationEvent` with an `@context`, in place of `cce:CceClinicalEvent`. With `openhim`, everything above is unchanged.
 
 ### Checks
 
@@ -141,7 +141,8 @@ Resources with no patient (`Location`, `Practitioner`, …) are skipped in Beckn
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | No `openmrs_beckn_*` metrics; `forward.success` rising | Emitter is on the OpenHIM path | Set `OPENMRS_EMITTER_TARGET=beckn` and restart |
-| `result=NACK` on every message | Schema, signature or context problem | Read `error.code` and `error.message` in the log line. Check `OPENMRS_EMITTER_BECKN_SCHEMA_BASE_URL`; on `leg=cce-events` `OPENMRS_EMITTER_BECKN_SYGNAL_ID` (must match the keys in `onix-openmrs`) and `OPENMRS_EMITTER_BECKN_SYGNAL_NETWORK_ID`; on the referral legs the contract ids in `emitter.beckn.spice.*`; and that the onix containers hold the Sygnal profile (onix-openmrs), `CceClinicalEvent` and OpenMRS's keys |
+| `result=NACK` on every message | Schema, signature or context problem | Read `error.code` and `error.message` in the log line. Check `OPENMRS_EMITTER_BECKN_SCHEMA_BASE_URL`; on `leg=cce-events` `OPENMRS_EMITTER_BECKN_SYGNAL_ID` (must match the keys in `onix-openmrs`) and `OPENMRS_EMITTER_BECKN_SYGNAL_NETWORK_ID`; on the referral legs the contract ids in `emitter.beckn.spice.*`; and that the onix containers hold the Sygnal profile (onix-openmrs: `cce-sygnal-apis.yaml` and `cce-fhir-extension.yaml`, in one folder), the `CoordinationEvent/v3.0` schema and the Health* pack (onix-bap, onix-bpp) and OpenMRS's keys |
+| `NACK` `SCH_SCHEMA_ADAPTATION_FAILED` on a referral leg | One side still sends the old `cce:CceClinicalEvent` box, which an adapter without the old schema refuses | Both OpenMRS and Spice must send the `sygnal:CoordinationEvent` box (since 2026-11-23). Check the emitter image, and that `onix-bap`, `onix-bpp` and Spice's adapters hold `CoordinationEvent/v3.0` |
 | `NACK` with `CTX_INVALID_FIELD` about `receiverId` on `leg=cce-events` | `OPENMRS_EMITTER_BECKN_SYGNAL_HIE_ID` is not the HIE's subscriber id | Set it to the HIE's id (`bap.openhim.nextsteps.mdtlabs.org`) |
 | `NACK` with `BIZ_GENERIC_ERROR` on `leg=cce-events` | CCE refused the event | Read `error.message`. Fix the data in OpenMRS. The corrected resource gets a new event id, so CCE does not drop it as a duplicate |
 | `NACK` from onix about `context` fields on `leg=cce-events` | An old `bapId` / `bppId` style message to the HIE, or a field the closed Sygnal context does not allow | Check the image is the `sygnal-actions` build |

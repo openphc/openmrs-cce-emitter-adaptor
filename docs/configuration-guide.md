@@ -102,7 +102,7 @@ Trigger condition: classification fires when **all** of the following are true �
 
 > **Status:** Implemented on branch `sygnal-actions` (package `org.openphc.cce.emitter.beckn`). Not yet tested against real onix containers. See [beckn-integration.md](beckn-integration.md) § 11 for the full YAML.
 >
-> Beckn mode uses two protocols. The **CCE events leg** sends each resource to the HIE as the Sygnal action `sygnal/event/report`, through OpenMRS's Sygnal onix (`onix-openmrs`): settings `emitter.beckn.sygnal.*`. The **Spice referral legs** are standard Beckn (`on_status`, `update`), unchanged from `demo-beckn`: settings `emitter.beckn.onix.bap/bpp-caller-url`, `emitter.beckn.self.*`, `emitter.beckn.spice.*`.
+> Beckn mode uses two protocols. The **CCE events leg** sends each resource to the HIE as the Sygnal action `sygnal/event/report`, through OpenMRS's Sygnal onix (`onix-openmrs`): settings `emitter.beckn.sygnal.*`. The **Spice referral legs** are standard Beckn (`on_status`, `update`), as on `demo-beckn` except the box (a `sygnal:CoordinationEvent` since 2026-11-23): settings `emitter.beckn.onix.bap/bpp-caller-url`, `emitter.beckn.self.*`, `emitter.beckn.spice.*`.
 >
 > With `OPENMRS_EMITTER_TARGET=beckn` the emitter fails to start if a required setting is missing or wrong; the error names each one. Only the settings of the legs that are on are required. `sygnal.hie.uri` and the referral-leg ids have no defaults; `application-beckn-demo.yml` (profile `beckn-demo`) holds example values.
 
@@ -112,16 +112,16 @@ With `OPENMRS_EMITTER_TARGET=openhim` the emitter posts FHIR to OpenHIM as descr
 |----------|---------|---------|-------------|
 | `emitter.target` | `OPENMRS_EMITTER_TARGET` | `beckn` (on this branch) | `openhim` (today's path) or `beckn` |
 | `emitter.beckn.onix.timeout` | `OPENMRS_EMITTER_BECKN_ONIX_TIMEOUT` | `50s` | Wait for one onix answer, every leg. The outermost hop: longer than every hop behind it ([beckn-integration.md](beckn-integration.md) § 10.4) |
-| `emitter.beckn.schema-base-url` | `OPENMRS_EMITTER_BECKN_SCHEMA_BASE_URL` | `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema` | Base URL of the `CceClinicalEvent` schema: `{base}/CceClinicalEvent/v2.0/context.jsonld` is the `@context` of the event of `sygnal/event/report`; the Beckn referral legs keep `{base}/CceClinicalEvent/v1.0/context.jsonld`. The files are in the cce-beckn-service `schema/` folder |
+| `emitter.beckn.schema-base-url` | `OPENMRS_EMITTER_BECKN_SCHEMA_BASE_URL` | `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema` | Base URL of the schemas: `{base}/CoordinationEvent/v3.0/context.jsonld` is the `@context` of the `performanceAttributes` box of the Beckn referral legs (until 2026-11-23 `{base}/CceClinicalEvent/v1.0/context.jsonld`). The event of `sygnal/event/report` has no `@context` and does not use this setting. The files are in the cce-beckn-service `schema/` folder |
 | **CCE events leg (Sygnal)** | | | |
 | `emitter.beckn.sygnal.caller-url` | `OPENMRS_EMITTER_BECKN_SYGNAL_CALLER_URL` | `http://onix-openmrs:8082/sygnal/caller` | onix Sygnal caller. The emitter appends `/sygnal/event/report` |
-| `emitter.beckn.sygnal.id` | `OPENMRS_EMITTER_BECKN_SYGNAL_ID` | `bap.openmrs.nextsteps.mdtlabs.org` | OpenMRS's Sygnal subscriber id: `context.senderId`. Must match the keys in `onix-openmrs` |
+| `emitter.beckn.sygnal.id` | `OPENMRS_EMITTER_BECKN_SYGNAL_ID` | `bap.openmrs.nextsteps.mdtlabs.org` | OpenMRS's Sygnal subscriber id: `context.senderId` and `from.id` of the event. Must match the keys in `onix-openmrs` |
 | `emitter.beckn.sygnal.network-id` | `OPENMRS_EMITTER_BECKN_SYGNAL_NETWORK_ID` | `sygnal.nextsteps.mdtlabs.org/sygnal_demo_network_registry` | Required. `context.networkId` |
 | `emitter.beckn.sygnal.hie.id` | `OPENMRS_EMITTER_BECKN_SYGNAL_HIE_ID` | `bap.openhim.nextsteps.mdtlabs.org` | The HIE's subscriber id: `context.receiverId` |
 | `emitter.beckn.sygnal.hie.uri` | `OPENMRS_EMITTER_BECKN_SYGNAL_HIE_URI` | — | Required. The HIE's public onix receiver base, e.g. `https://hie.example.org/sygnal/receiver`: `context.receiverUri` |
 | `emitter.beckn.sygnal.hie.transaction-id` | `OPENMRS_EMITTER_BECKN_SYGNAL_HIE_TRANSACTION_ID` | — | Optional fixed `context.transactionId` (a UUID). Empty: a new UUID per event |
 | `emitter.beckn.legs.cce-events` | `OPENMRS_EMITTER_BECKN_LEG_CCE_EVENTS` | `true` | Send every resource to the HIE |
-| **Spice referral legs (Beckn, unchanged)** | | | |
+| **Spice referral legs (Beckn)** | | | |
 | `emitter.beckn.onix.bap-caller-url` | `OPENMRS_EMITTER_BECKN_ONIX_BAP_CALLER_URL` | `http://onix-bap:8081/bap/caller` | `onix-bap` caller. Used for `update` to Spice |
 | `emitter.beckn.onix.bpp-caller-url` | `OPENMRS_EMITTER_BECKN_ONIX_BPP_CALLER_URL` | `http://onix-bpp:8082/bpp/caller` | `onix-bpp` caller. Used for `on_status` to Spice |
 | `emitter.beckn.self.network-id` | `OPENMRS_EMITTER_BECKN_SELF_NETWORK_ID` | — | Optional. Sent as `context.networkId` of the Beckn messages when set |

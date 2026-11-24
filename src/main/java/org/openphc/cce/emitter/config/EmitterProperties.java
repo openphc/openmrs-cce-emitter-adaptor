@@ -59,7 +59,7 @@ public class EmitterProperties {
     @Data
     public static class BecknConfig {
         private OnixConfig onix = new OnixConfig();
-        /** Base of the {@code CceClinicalEvent} {@code @context} URL. */
+        /** Base of the {@code @context} URL of the box of the Beckn referral legs ({@code CoordinationEvent/v3.0}). */
         private String schemaBaseUrl = "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema";
         /** The CCE events leg: Sygnal {@code sygnal/event/report} to the HIE. */
         private SygnalConfig sygnal = new SygnalConfig();
@@ -87,7 +87,7 @@ public class EmitterProperties {
          * action, {@code /sygnal/event/report}.
          */
         private String callerUrl = "http://onix-openmrs:8082/sygnal/caller";
-        /** OpenMRS's Sygnal subscriber id: {@code context.senderId}. */
+        /** OpenMRS's Sygnal subscriber id: {@code context.senderId} and {@code from.id}. */
         private String id = "bap.openmrs.nextsteps.mdtlabs.org";
         /** Required. Sent as {@code context.networkId}. */
         private String networkId;

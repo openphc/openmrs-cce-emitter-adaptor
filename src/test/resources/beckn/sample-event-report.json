@@ -13,9 +13,12 @@
   "message": {
     "events": [
       {
-        "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceClinicalEvent/v2.0/context.jsonld",
-        "@type": "cce:CceClinicalEvent",
+        "@type": "sygnal:CoordinationEvent",
         "id": "3f6c1c1e-8a53-5b0e-9d7a-2b6f4e1a9c10",
+        "revision": 1,
+        "eventType": "DELIVERY_RECORDED",
+        "granularity": "INDIVIDUAL",
+        "from": { "id": "bap.openmrs.nextsteps.mdtlabs.org", "role": "PROVIDER" },
         "occurredAt": "2026-11-13T08:00:12Z",
         "patientId": "1198503150001234",
         "fhirVersion": "4.0.1",

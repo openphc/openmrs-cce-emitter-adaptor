@@ -7,20 +7,22 @@ In Beckn mode the emitter sends on three legs, with **two protocols**:
 | Leg | Protocol | Message | To | Through |
 |---|---|---|---|---|
 | CCE events (`cce-events`) | **Sygnal** | `sygnal/event/report` | The HIE (OpenHIM), which passes it on to CCE | `onix-openmrs` Sygnal caller |
-| Referrals in (`referrals-in`) | **Beckn**, unchanged from `demo-beckn` | `on_status` | Spice | `onix-bpp` |
-| Referrals out (`referrals-out`) | **Beckn**, unchanged from `demo-beckn` | `update` | Spice | `onix-bap` |
+| Referrals in (`referrals-in`) | **Beckn**, as on `demo-beckn` (new box since 2026-11-23, §8.3) | `on_status` | Spice | `onix-bpp` |
+| Referrals out (`referrals-out`) | **Beckn**, as on `demo-beckn` (new box since 2026-11-23, §8.3) | `update` | Spice | `onix-bap` |
 
-The CCE events leg follows the CCE profile of Sygnal, `schema/sygnal-profile/v2.0/cce-sygnal-apis.yaml` in the cce-beckn-service repository; that file is the binding contract between OpenMRS, the HIE and CCE. The Beckn `update` on the "HIE feed" contract, its commitment file and its `openhim.*` settings are gone. The Spice referral legs are standard Beckn and behave exactly as on `demo-beckn`: same messages, contracts, settings and metrics. The central design for them is **"Design: Beckn support for OpenMRS"** in the `openmrs-beckn-service` repository; section numbers in brackets, such as (§4.5), point to that document.
+The CCE events leg follows the CCE profile of Sygnal, `schema/sygnal-profile/v3.0/` in the cce-beckn-service repository: `cce-sygnal-apis.yaml`, which refers to `cce-fhir-extension.yaml` for the FHIR fields. These two files are the binding contract between OpenMRS, the HIE and CCE. The Beckn `update` on the "HIE feed" contract, its commitment file and its `openhim.*` settings are gone. The Spice referral legs are standard Beckn and behave as on `demo-beckn`: same actions, contracts, settings and metrics. Only their `performanceAttributes` box changed, on 2026-11-23 (§8.3). The central design for them is **"Design: Beckn support for OpenMRS"** in the `openmrs-beckn-service` repository; section numbers in brackets, such as (§4.5), point to that document.
 
 With `OPENMRS_EMITTER_TARGET=openhim` nothing in this document applies. The emitter posts FHIR to OpenHIM exactly as it does today.
 
-> **Change 2026-11-23: payload types.** The payload of `sygnal/event/report` is now CCE's own type: each entry of `message.events` is one flat `cce:CceClinicalEvent` v2.0 (§8.1). Before, it was a `sygnal:CoordinationEvent` with the `CceClinicalEvent` in an `eventAttributes` bag. Gone from the event: the wrapper `"@type": "sygnal:CoordinationEvent"`, `revision`, `eventType` (both the Sygnal `DELIVERY_RECORDED` and the one in the bag), `granularity`, `from`, and the `eventAttributes` bag itself. The kind of clinical event is `resource.resourceType`. The reasons:
+> **Change 2026-11-23: extended Sygnal types (profile v3.0).** On 2026-11-23 the customer decided to open and extend CCE's copy of `sygnal:CoordinationEvent` (profile v3.0), instead of using the `cce:CceClinicalEvent` payload (profile v2.0, merged here earlier the same day). The event of `sygnal/event/report` is again a `sygnal:CoordinationEvent`, now with the clinical-event fields `patientId`, `fhirVersion`, `sourceEventId` and `resource` directly on it (§8.1). There is no `cce:` type, no `eventAttributes` bag and no `@context` in the Sygnal message. The reasons and the history (profiles v1.0, v2.0, v3.0) are in the contract, `schema/sygnal-profile/v3.0/cce-sygnal-apis.yaml`.
 >
-> 1. `sygnal:CoordinationEvent` has no place for a FHIR resource.
-> 2. It is closed (`additionalProperties: false`), so a FHIR resource cannot be added as an extra field.
-> 3. `cce:CceClinicalEvent` cannot extend it without a change to `sygnal:CoordinationEvent` itself: a closed base refuses the fields of a type that extends it.
+> Everything else is unchanged: the action name and path, the Sygnal `context`, the `Ack` / `Nack` answers and codes, the retry rules, the event id, every setting, and the Spice referral legs (standard Beckn, with the same `performanceAttributes` box as before, §8.3). The box changed later the same day; see the next note.
 >
-> Everything else is unchanged: the action name and path, the Sygnal `context`, the `Ack` / `Nack` answers and codes, the retry rules, the onix adapters, the event id, and the Spice referral legs (standard Beckn, with the same `performanceAttributes` box as before, §8.3).
+> **Change 2026-11-23: the box of the Spice referral legs is a `sygnal:CoordinationEvent`.** The `performanceAttributes` box of `on_status` and `update` is no longer a `cce:CceClinicalEvent` v1.0. It is the same `sygnal:CoordinationEvent` as the event of `sygnal/event/report` (§8.1), with an `@context` first: Beckn core requires `@context` on `performanceAttributes`, and onix checks a typed object only when it has one (§8.3). `eventType` in the box is now `DELIVERY_RECORDED`, not the FHIR resource type; the kind of clinical event is `resource.resourceType`. The schema is `schema/CoordinationEvent/v3.0/` in cce-beckn-service; `CceClinicalEvent/v1.0` and `CceCareAlert/v1.0` are deleted. The schema set of `onix-bap` and `onix-bpp` (onix 1.9.4) is now `CoordinationEvent/v3.0` plus the Health* pack.
+>
+> Spice must make the same change at the same time, in its boxes and in its referral adapters' schema set. An adapter without the old schema refuses the old `cce:CceClinicalEvent` box (`SCH_SCHEMA_ADAPTATION_FAILED`). The actions, contracts, settings, metrics and the referral classification are unchanged; `emitter.beckn.schema-base-url` is now the base of the box's `@context`. Checked with four onix 1.9.4 referral adapters (OpenMRS's pair and a stand-in Spice pair): the six referral messages pass and malformed boxes are refused (19 of 19 cases).
+>
+> **Change 2026-11-24: Sygnal's types word for word.** CCE's copy of the Sygnal schema now keeps `sygnal:CoordinationEvent` and `sygnal:Signal` exactly as Sygnal v0.9.0 publishes them, except `additionalProperties: true`. CCE's rules (the event `id` is required and a UUID, `revision` is 1) moved into `cce-fhir-extension.yaml`, next to the FHIR fields. The event this emitter sends, on the Sygnal leg and in the box of the referral legs, is unchanged, and so are its code and settings; `onix-openmrs` and the referral adapters only need the new copies of the schema files.
 
 ---
 
@@ -28,8 +30,8 @@ With `OPENMRS_EMITTER_TARGET=openhim` nothing in this document applies. The emit
 
 - A setting, `OPENMRS_EMITTER_TARGET`, chooses the path: `beckn` (the default on this branch) or `openhim` (today's path).
 - In `beckn` mode every changed resource goes to the HIE as one Sygnal `sygnal/event/report`, through OpenMRS's Sygnal onix (`onix-openmrs`). The HIE passes it on to CCE. No callback follows; the synchronous answer (`202` + `Ack`, or a `Nack`) is the whole result.
-- A referral `ServiceRequest` can also lead to one Beckn message to Spice: `on_status` for the outcome of a referral from Spice, or `update` for a referral out to Spice. These are unchanged.
-- The FHIR resource travels unchanged in `resource`: on the Sygnal leg in the event itself, a flat `cce:CceClinicalEvent` v2.0 (§8.1); on the Beckn legs in the `performanceAttributes` box, a `CceClinicalEvent` v1.0 (§8.3). The emitter builds no CloudEvent.
+- A referral `ServiceRequest` can also lead to one Beckn message to Spice: `on_status` for the outcome of a referral from Spice, or `update` for a referral out to Spice. Their actions and contracts are unchanged; their box is a `sygnal:CoordinationEvent` since 2026-11-23 (§8.3).
+- The FHIR resource travels unchanged in `resource`: on the Sygnal leg in the event itself, the extended `sygnal:CoordinationEvent` (§8.1); on the Beckn legs in the `performanceAttributes` box, the same `sygnal:CoordinationEvent` with an `@context` (§8.3). The emitter builds no CloudEvent.
 - Polling, enrichment, the national-ID rewrite and the checkpoint stay as they are.
 - No new endpoint. Spice's callbacks (`on_update`, `on_status`) go to the receiver adaptor, not the emitter.
 
@@ -256,7 +258,7 @@ The event id is a name-based UUID of a SHA-256 hash of the resource JSON, with k
 
 Decimals are read exactly (`1.50` stays `1.50`), both for the hash and for the `resource` that is sent.
 
-The same event id is used on every leg: it is `message.events[0].id` (the `CceClinicalEvent` id) on the Sygnal leg, and `performance[0].id` on the Beckn referral legs.
+The same event id is used on every leg: it is `message.events[0].id` (the `sygnal:CoordinationEvent` id) on the Sygnal leg, and `performance[0].id` on the Beckn referral legs.
 
 How CCE uses it: the HIE forwards the event to CCE with the **same id** on every hop, so CCE's collector recognises a repeat and answers `Ack` without storing it twice. CCE allows at most 50 characters; a UUID is 36.
 
@@ -275,7 +277,7 @@ The namespace UUID must never change. If it does, every event gets a new id.
 
 ## 6. Patient id
 
-`patientId` is required by `CceClinicalEvent`, both the event of the Sygnal leg and the box of the Beckn legs. `PatientIdReader` reads it in a simple way:
+`patientId` is required on every leg, by the `sygnal:CoordinationEvent`: the event of the Sygnal leg and the box of the Beckn legs. `PatientIdReader` reads it in a simple way:
 
 | Resource | `patientId` |
 |---|---|
@@ -338,20 +340,23 @@ Each change to a referral out goes to Spice again as a new `update`, with the sa
 | `messageId` | A new random UUID for every attempt, including each retry (§10) |
 | `timestamp` | The send time of the attempt |
 
-**`message.events[0]`** — exactly one flat `cce:CceClinicalEvent` v2.0 (`schema/CceClinicalEvent/v2.0/attributes.yaml` in the cce-beckn-service repository). The event is the `CceClinicalEvent` itself: there is no Sygnal wrapper and no attribute bag.
+**`message.events[0]`** — exactly one `sygnal:CoordinationEvent`, as extended in CCE's copy of the Sygnal schema (`CoordinationEvent` in `schema/sygnal-profile/v3.0/cce-sygnal-apis.yaml` in the cce-beckn-service repository, with the FHIR fields in `CoordinationEventFhirExtension` of `cce-fhir-extension.yaml` in the same folder). The clinical-event fields are on the event itself: there is no `cce:CceClinicalEvent` type, no `eventAttributes` bag and no `@context`. The emitter writes the fields in this order:
 
 | Field | Required | Value |
 |---|---|---|
-| `@context` | Yes | `{OPENMRS_EMITTER_BECKN_SCHEMA_BASE_URL}/CceClinicalEvent/v2.0/context.jsonld` |
-| `@type` | Yes | `cce:CceClinicalEvent` |
+| `@type` | Yes | `sygnal:CoordinationEvent` |
 | `id` | Yes | The event id (§5), a UUID. The same on every hop and every retry |
+| `revision` | No | `1`, always. A correction is a new event with a new id (§5) |
+| `eventType` | Yes | `DELIVERY_RECORDED`, always. This is Sygnal's field; the kind of clinical event for CCE is `resource.resourceType` |
+| `granularity` | No | `INDIVIDUAL` |
+| `from` | No | `{ "id": sygnal.id, "role": "PROVIDER" }`. `from.id` equals `context.senderId` |
 | `occurredAt` | Yes | `meta.lastUpdated` of the resource as a UTC instant; the build time if it is missing or not a full timestamp (see below) |
 | `patientId` | Yes | §6 |
 | `fhirVersion` | Yes | `4.0.1` |
 | `sourceEventId` | No | `{ResourceType}/{id}`. Left out when the resource has no id |
 | `resource` | Yes | The FHIR resource, as the emitter built it. Its `resourceType` is the kind of clinical event |
 
-The object is **closed**: CCE's schema accepts no other field, so the emitter sends exactly these and never a `null`. The schema also allows `facilityId` and `facilityName`; the emitter does not send them (the facility is in the resource). A correction is a new event with a new id (§5); there is no `revision`.
+"Required" is what the profile requires; the emitter always sends every field of the table except `sourceEventId`, which it leaves out when there is none. It sends these fields and nothing else, and never a `null`. The profile also allows `facilityId` and `facilityName`; the emitter does not send them (the facility is in the resource). In CCE's copy the type is open (`additionalProperties: true`), so a receiver ignores a field it does not know; a validator that uses Sygnal's published schema, where the type is closed, would refuse this event. Every participant of this network loads CCE's copy.
 
 `occurredAt` is when OpenMRS recorded **this version** of the resource, which is the version the event id is the hash of. It is present on every resource type and is always a full instant. The time of the clinical act itself (`Encounter.period.start`, `Observation.effectiveDateTime`, `ServiceRequest.authoredOn`, …) stays in the resource; CCE's `ClinicalEventTimeExtractor` reads it from there and prefers it over the envelope time for its schedules, so the emitter does not keep a second copy of that table. A prior order refetched by `OrderRevisionResolver` keeps its old `lastUpdated` (OpenMRS does not move it when the status flips), so its `occurredAt` is the time of the original order.
 
@@ -375,23 +380,32 @@ There are two fixed referral contracts. No message opens one. The ids are settin
 | `contract.id` | `spice.referrals-in.contract-id` | `spice.referrals-out.contract-id` |
 | `commitments` | `spice.referrals-in.commitment-file` | `spice.referrals-out.commitment-file` |
 
-`messageId` is a new random UUID for every attempt, including each retry (§10). `timestamp` is the send time. `version` is `2.0.0`. `networkId` is optional and left out when `self.network-id` is not set (it is separate from the Sygnal `sygnal.network-id`). `performance` always holds exactly one entry, whose `performanceAttributes` is the `CceClinicalEvent` v1.0 box (§8.3).
+`messageId` is a new random UUID for every attempt, including each retry (§10). `timestamp` is the send time. `version` is `2.0.0`. `networkId` is optional and left out when `self.network-id` is not set (it is separate from the Sygnal `sygnal.network-id`). `performance` always holds exactly one entry, whose `performanceAttributes` is the `sygnal:CoordinationEvent` box (§8.3).
 
 The demo sends no `confirm`. The Beckn specification asks for one before `update` (§3, §11).
 
-### 8.3 The `CceClinicalEvent` box of the Beckn legs (unchanged)
+### 8.3 The box of the Beckn legs: `sygnal:CoordinationEvent`
 
-On the Beckn referral legs the `CceClinicalEvent` is a box, `performanceAttributes`, exactly as before: version 1.0, with `eventType`. The Sygnal leg does not use this box; its event is the flat v2.0 object of §8.1.
+On the Beckn referral legs the box, `performanceAttributes`, is the same `sygnal:CoordinationEvent` as the event of the Sygnal leg (§8.1), with an `@context` first. Beckn core requires `@context` on `performanceAttributes`, and onix checks a typed object only when it has one. onix finds the schema by `@type`: `sygnal:CoordinationEvent` → `CoordinationEvent/attributes.yaml` in its local schema folder. The schema is `schema/CoordinationEvent/v3.0/` (`attributes.yaml`, `context.jsonld`) in the cce-beckn-service repository.
+
+Until 2026-11-23 the box was a `cce:CceClinicalEvent` v1.0, with `eventType` = the FHIR resource type. That schema is deleted, and an adapter without it refuses the old box (`SCH_SCHEMA_ADAPTATION_FAILED`).
 
 | Field | Required | Value |
 |---|---|---|
-| `@context` | Yes | `{OPENMRS_EMITTER_BECKN_SCHEMA_BASE_URL}/CceClinicalEvent/v1.0/context.jsonld` |
-| `@type` | Yes | `cce:CceClinicalEvent` |
-| `eventType` | Yes | The FHIR resource type |
+| `@context` | Yes | `{OPENMRS_EMITTER_BECKN_SCHEMA_BASE_URL}/CoordinationEvent/v3.0/context.jsonld` |
+| `@type` | Yes | `sygnal:CoordinationEvent` |
+| `id` | Yes | The event id (§5), the same as the performance entry `id` |
+| `revision` | No | `1`, always |
+| `eventType` | Yes | `DELIVERY_RECORDED`, always. The kind of clinical event is `resource.resourceType` |
+| `granularity` | No | `INDIVIDUAL` |
+| `from` | No | `{ "id": <sender>, "role": "PROVIDER" }`. The sender is the subscriber id that sends the message: `self.bpp-id` (`context.bppId`) on `on_status`, `self.bap-id` (`context.bapId`) on `update` |
+| `occurredAt` | Yes | `meta.lastUpdated` of the resource, as in §8.1 |
 | `patientId` | Yes | §6 |
 | `fhirVersion` | Yes | `4.0.1` |
+| `sourceEventId` | No | `{ResourceType}/{id}`. Left out when the resource has no id |
 | `resource` | Yes | The FHIR resource, as the emitter built it |
-| `sourceEventId` | No | `{ResourceType}/{id}` |
+
+As on the Sygnal leg, the emitter sends these fields and nothing else, and never a `null`; it does not send the optional `facilityId` and `facilityName`.
 
 There is no CloudEvent in the emitter. CloudEvents exist only in the HIE and in CCE.
 
@@ -419,9 +433,12 @@ Posted to `{OPENMRS_EMITTER_BECKN_SYGNAL_CALLER_URL}/sygnal/event/report`, by de
   "message": {
     "events": [
       {
-        "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceClinicalEvent/v2.0/context.jsonld",
-        "@type": "cce:CceClinicalEvent",
+        "@type": "sygnal:CoordinationEvent",
         "id": "3f6c1c1e-8a53-5b0e-9d7a-2b6f4e1a9c10",
+        "revision": 1,
+        "eventType": "DELIVERY_RECORDED",
+        "granularity": "INDIVIDUAL",
+        "from": { "id": "bap.openmrs.nextsteps.mdtlabs.org", "role": "PROVIDER" },
         "occurredAt": "2026-11-13T08:00:12Z",
         "patientId": "1198503150001234",
         "fhirVersion": "4.0.1",
@@ -443,7 +460,7 @@ Posted to `{OPENMRS_EMITTER_BECKN_SYGNAL_CALLER_URL}/sygnal/event/report`, by de
 
 The tests check against this sample (`src/test/resources/beckn/sample-event-report.json`).
 
-### 9.2 A referral outcome to Spice (Beckn `on_status`, unchanged)
+### 9.2 A referral outcome to Spice (Beckn `on_status`)
 
 Posted to `{OPENMRS_EMITTER_BECKN_ONIX_BPP_CALLER_URL}/on_status`. The same `ServiceRequest` also goes to the HIE as `sygnal/event/report` (9.1), with the same event id and `sourceEventId`.
 
@@ -470,9 +487,14 @@ Posted to `{OPENMRS_EMITTER_BECKN_ONIX_BPP_CALLER_URL}/on_status`. The same `Ser
           "id": "6b7c8d9e-0f1a-5b2c-9d3e-4f5a6b7c8d9e",
           "status": { "code": "COMPLETED" },
           "performanceAttributes": {
-            "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceClinicalEvent/v1.0/context.jsonld",
-            "@type": "cce:CceClinicalEvent",
-            "eventType": "ServiceRequest",
+            "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CoordinationEvent/v3.0/context.jsonld",
+            "@type": "sygnal:CoordinationEvent",
+            "id": "6b7c8d9e-0f1a-5b2c-9d3e-4f5a6b7c8d9e",
+            "revision": 1,
+            "eventType": "DELIVERY_RECORDED",
+            "granularity": "INDIVIDUAL",
+            "from": { "id": "bpp.openmrs.example.org", "role": "PROVIDER" },
+            "occurredAt": "2026-11-16T09:30:10Z",
             "patientId": "1198503150001234",
             "fhirVersion": "4.0.1",
             "sourceEventId": "ServiceRequest/0fe4c80e-3a2b-4c1d-8e9f-a0b1c2d3e4f5",
@@ -499,8 +521,12 @@ Posted to `{OPENMRS_EMITTER_BECKN_ONIX_BPP_CALLER_URL}/on_status`. The same `Ser
 }
 ```
 
+The tests check against this sample (`src/test/resources/beckn/sample-on-status.json`, where the commitment is written out in full).
+
 What to notice:
 
+- The box has the same `id` as the performance entry: the event id. `from.id` is OpenMRS's BPP id, `context.bppId`, because OpenMRS sends this message. In an `update` it is `context.bapId`.
+- `eventType` is `DELIVERY_RECORDED`. The kind of clinical event is `resource.resourceType`.
 - `basedOn` holds `1838`, Spice's own referral id. Spice finds its referral by it.
 - The contract stays `ACTIVE`. All referrals from Spice share it.
 - A declined referral has performance status `DECLINED` and `ServiceRequest` status `revoked`.
@@ -618,10 +644,10 @@ emitter:
 | Setting | Meaning |
 |---|---|
 | `onix.timeout` | Time to wait for one answer, on every leg. Default 50 s. Must be longer than the timeouts of all hops behind it (§10.4) |
-| `schema-base-url` | Base of the `CceClinicalEvent` `@context` URL: `{base}/CceClinicalEvent/v2.0/context.jsonld` in the event of the Sygnal leg, `{base}/CceClinicalEvent/v1.0/context.jsonld` in the box of the Beckn legs. The schema files are in the `schema/` folder of the cce-beckn-service repository |
+| `schema-base-url` | Base of the `@context` URL in the box of the Beckn legs: `{base}/CoordinationEvent/v3.0/context.jsonld`. The event of the Sygnal leg has no `@context` and does not use this setting. The schema files are in the `schema/` folder of the cce-beckn-service repository |
 | **CCE events leg (Sygnal)** | |
 | `sygnal.caller-url` | Sygnal caller of `onix-openmrs`. The emitter appends `/sygnal/event/report` |
-| `sygnal.id` | OpenMRS's Sygnal subscriber id: `context.senderId`. Must be the subscriber id of the keys in `onix-openmrs` |
+| `sygnal.id` | OpenMRS's Sygnal subscriber id: `context.senderId` and `from.id` of the event. Must be the subscriber id of the keys in `onix-openmrs` |
 | `sygnal.network-id` | Required. `context.networkId` |
 | `sygnal.hie.id` | The HIE's subscriber id: `context.receiverId`. The HIE refuses a report not addressed to it |
 | `sygnal.hie.uri` | Required. The HIE's public onix receiver base: `context.receiverUri`. onix delivers to `{uri}/sygnal/event/report` |
@@ -752,6 +778,6 @@ In Beckn mode the `openhim` health check is not registered, so `/actuator/health
 | No `confirm` | The demo skips `confirm` before the Beckn `update` to Spice. An adapter version or a network rule may later refuse this |
 | Slow answers slow the poll | Resources are sent one after another, and the answer comes back through every hop. `onix.timeout` (50 s) must be longer than every inner hop's timeout (§10.4), or the emitter resends an event that got through (safe: CCE drops the repeat) |
 | Adapter behaviour untested | The answer handling relies on onix passing the far side's `Ack` / `Nack` back in the same call |
-| Kind of event | Sygnal leg: there is no `eventType`; CCE takes the kind of event from `resource.resourceType`. Beckn legs: `eventType` in the box is the FHIR resource type, as before |
+| Kind of event | On every leg `eventType` is Sygnal's `DELIVERY_RECORDED`; the kind of clinical event is `resource.resourceType`. Until 2026-11-23 the box of the Beckn legs had `eventType` = the FHIR resource type |
 | Resources without a patient | Settled: skipped with a log line and a metric (§6) |
 | Health check | Settled: in Beckn mode the `onix` check replaces the OpenHIM check (§13.3) |
